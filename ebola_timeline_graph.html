@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Streamgraph</title>
+<style>
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  position: relative;
+  width: 1100px;
+}
+
+button {
+  position: absolute;
+  right: -100px;
+  top: 30px;
+  font-size: 16px;
+}
+
+.background rect {fill: #ddd;}
+.axis {shape-rendering: crispEdges;}
+.x.axis line {stroke: #fff;}
+.x.axis path {display: none;}
+.y.axis line {stroke: #fff;}
+.y.axis path {display: none;}
+.ylabel {font-size: 20px;}
+.title {font-size: 30px;}
+.timeline {
+  font-size: 18px;
+  text-anchor: end;
+  fill: #5E5E5E;
+}
+path {fill: none;}
+
+</style>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script>
+
+// --------------------------------------------------------------------------------------------------------------- DATA
+d3.json("ebola_layers_data.json", function(json){
+
+// load the data from a text-file
+eboladata = json;
+// load the data for the graph. 
+// date handling for the data data that comes in 
+var dateparser = d3.time.format("%Y-%m-%d").parse;
+// Data for the timeline below the x axis
+var timelinedata = eboladata.timeline
+// data for the number of caes/ day
+var casesdata = eboladata.num_cases
+
+// --------------------------------------------------------------------------------------------------------- SVG Canvas
+// Start drawing :)
+// size of the svg canvas
+var width = 1100,
+    height = 400,
+    axis_buffer = 160,
+    top_buffer = 70,
+    left_buffer = 50,
+    right_buffer = 100;
+
+svg = d3.select("body").append("svg")
+    .attr("width", (width + axis_buffer + left_buffer + right_buffer ))
+    .attr("height", (height + axis_buffer + top_buffer));
+
+// ------------------------------------------------------------------------------------------------------ Title & Bkgnd
+// gray rectangle (chart background)
+svg.append("rect").attr("class", "background")
+    .attr("width", width + right_buffer - 30 )
+    .attr("height", height).attr("fill", "#ddd")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (top_buffer+.65) + ")");
+
+// darker gray rectangle (right y-axis background)
+svg.append("rect")
+    .attr("width", right_buffer - 30 )
+    .attr("height", height)
+    .attr("transform", "translate(" + (axis_buffer+left_buffer+width) + "," + (top_buffer+.65) + ")")
+    .attr("fill", "#c6c6c6");
+
+// draw the title
+svg.append("text")
+    .attr("class", "title")
+    .text("Using Twitter to Inform the Public About Ebola")
+    .attr("y", top_buffer/2 + 20)
+    .attr("x", axis_buffer + left_buffer)
+    .style("text-anchor", "start"); 
+
+// ------------------------------------------------------------------------------------------------------------- x axis
+
+// Important events timeline at the bottom of the graph
+// I want these lines to show up behid the xaxis, so I'm appending their group first 
+var timelineinfo = svg.append("g");
+
+// Add the x-axis.
+// x scale = time
+var x = d3.time.scale()
+    .domain([dateparser("2014-03-20"), dateparser("2015-03-01")])
+    .range([0, width]);
+var xAxis = d3.svg.axis().scale(x).tickSize(-height).tickFormat(d3.time.format("%b"));
+svg.append("g")
+    .attr("class", "x axis")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (height + top_buffer) + ")")
+    .call(xAxis)
+    .selectAll("text")
+    .attr("dy", "1em")
+    .attr("dx", "-1em")
+    .style("text-anchor", "middle");
+
+// ------------------------------------------------------------------------------------------------------- y axis right
+// Add the y axis (right) (scale = new cases /day)
+var cases_scale = d3.scale.linear()
+                    .domain([0, 520]) // Hardcoded to match nicely with the lines for the other y-scale
+                    .range([height, 0])
+var cases_yAxis = d3.svg.axis()
+                    .scale(cases_scale)
+                    .tickValues([50,100,150,200,250,300,350,400,450,500]) // Hardcoded for the same reason
+                    .orient("right");
+svg.append("g")
+    .attr("class", "y axis")
+    .attr("fill", "white")
+    .attr("transform", "translate(" + (width+axis_buffer+left_buffer) + "," + top_buffer + ")")
+    .call(cases_yAxis);
+
+// draw the y label for numcases
+var ylabel_right = svg.append("g")
+ylabel_right.append("text")
+    .attr("class", "ylabel")
+    .text("Approx. new cases/day (WHO reports)")
+    .attr("transform", 
+      "translate(" + (left_buffer + width + 208 ) + "," + (height/2 + top_buffer -5 ) + ") rotate(90)")
+    .style("text-anchor", "middle")
+    .style("fill", "white")
+    .style("font-size", "20px"); 
+
+// ---------------------------------------------------------------------------------------------------- bottom timeline
+// Add the timeline information to the timelineinfo group
+// add timeline lines (from the text to the xaxis)
+timelineinfo.selectAll("line")
+    .data(timelinedata)
+    .enter().append("line")
+    .attr("stroke-width", 1)
+    .attr("stroke", "#8e8e8e")
+    .attr("x1", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+    .attr("x2", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+    .attr("y1", function(d,i){ return (height + top_buffer + 40 + (i%5)*20 + 8)} )
+    .attr("y2", height + top_buffer)
+// add the timeline information
+timelineinfo.selectAll("text")
+  .data(timelinedata)
+  .enter().append("text")
+  .attr("class", "timeline")
+  .text(function(d){return d.events})
+  .attr("y", function(d,i){ return (height + top_buffer + 40 + (i%5)*20 + 10)} )
+  .attr("x", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+
+
+// ---------------------------------------------------------------------------------------------------- Cases/ day line
+// add the number of cases line
+var casesline = svg.append("g")
+// A line generator, for the number of cases
+var line = d3.svg.line()
+    .interpolate("bundle").tension(.8)
+    .x(function(d) { return x(dateparser(d.date)); })
+    .y(function(d) { return cases_scale(d.num_cases); });
+
+casesline.append("path").attr("class", "cases")
+    .attr("stroke-width", 2)
+    .attr("stroke", "white")
+    .attr("opacity", "1")
+    .attr("d", line(casesdata))
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")"); 
+
+
+});
+
+
+</script>

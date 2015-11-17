@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Streamgraph</title>
+<style>
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  position: relative;
+  width: 1100px;
+}
+
+button {
+  position: absolute;
+  right: -100px;
+  top: 30px;
+  font-size: 16px;
+}
+
+.background rect {fill: #ddd;}
+.axis {shape-rendering: crispEdges;}
+.x.axis line {stroke: #fff;}
+.x.axis path {display: none;}
+.y.axis line {stroke: #fff;}
+.y.axis path {display: none;}
+.ylabel {font-size: 20px;}
+.title {font-size: 30px;}
+.timeline {
+  font-size: 18px;
+  text-anchor: end;
+  fill: #5E5E5E;
+}
+path {fill: none;}
+
+</style>
+<button onclick="transition()">Switch View</button>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script>
+
+// --------------------------------------------------------------------------------------------------------------- DATA
+d3.json("ebola_layers_data.json", function(json){
+
+// load the data from a text-file
+eboladata = json;
+// load the data for the streamgraph. 
+// "stack" sets us up with a data structure that has all of the info for the streamgraph
+var stack = d3.layout.stack().order('default');
+layers0 = stack(eboladata.tweets),
+layers1 = stack(eboladata.percent);
+// format the yaxis display for either tweets/day or percent
+formatspecifier0 = ","
+formatspecifier1 = "%"
+// appropriate labels for the yaxis
+ylabel0 = "Total Tweets (and Retweets) per Day"
+ylabel1 = "Percentage of the Conversation"
+// date handling for the data data that comes in 
+var dateparser = d3.time.format("%Y-%m-%d").parse;
+// Data for the timeline below the x axis
+var timelinedata = eboladata.timeline
+// data for the number of caes/ day
+var casesdata = eboladata.num_cases
+
+// --------------------------------------------------------------------------------------------------------- SVG Canvas
+// Start drawing :)
+// size of the svg canvas
+var width = 1100,
+    height = 400,
+    axis_buffer = 160,
+    top_buffer = 70,
+    left_buffer = 50,
+    right_buffer = 100;
+
+svg = d3.select("body").append("svg")
+    .attr("width", (width + axis_buffer + left_buffer + right_buffer ))
+    .attr("height", (height + axis_buffer + top_buffer));
+
+// ------------------------------------------------------------------------------------------------------ Title & Bkgnd
+// gray rectangle (chart background)
+svg.append("rect").attr("class", "background")
+    .attr("width", width + right_buffer - 30 )
+    .attr("height", height).attr("fill", "#ddd")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (top_buffer+.65) + ")");
+
+// darker gray rectangle (right y-axis background)
+svg.append("rect")
+    .attr("width", right_buffer - 30 )
+    .attr("height", height)
+    .attr("transform", "translate(" + (axis_buffer+left_buffer+width) + "," + (top_buffer+.65) + ")")
+    .attr("fill", "#c6c6c6");
+
+// draw the title
+svg.append("text")
+    .attr("class", "title")
+    .text("Using Twitter to Inform the Public About Ebola")
+    .attr("y", top_buffer/2 + 20)
+    .attr("x", axis_buffer + left_buffer)
+    .style("text-anchor", "start"); 
+
+// ------------------------------------------------------------------------------------------------------------- x axis
+
+// Important events timeline at the bottom of the graph
+// I want these lines to show up behid the xaxis, so I'm appending their group first 
+var timelineinfo = svg.append("g");
+
+// Add the x-axis.
+// x scale = time
+var x = d3.time.scale()
+    .domain([dateparser("2014-03-20"), dateparser("2015-03-01")])
+    .range([0, width]);
+var xAxis = d3.svg.axis().scale(x).tickSize(-height).tickFormat(d3.time.format("%b"));
+svg.append("g")
+    .attr("class", "x axis")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (height + top_buffer) + ")")
+    .call(xAxis)
+    .selectAll("text")
+    .attr("dy", "1em")
+    .attr("dx", "-1em")
+    .style("text-anchor", "middle");
+
+// ------------------------------------------------------------------------------------------------------ y axis (left)
+// Add the y axis (left)
+// y axis (number of tweets or percentage of tweets)
+// these are all are global variables so that I can call them from "transition"
+yscale_max0 = 52000;
+yscale_max1 = .416;
+y_tickValues0 = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000]
+y_tickValues1 = [0,.04,.08,.12,.16,.2,.24,.28,.32,.36,.4]
+yscale = d3.scale.linear()
+    .domain([0, yscale_max0]) // Hardcoded this value so I could get the two y-axes to line up nicely, 
+    // could've used:
+    // .domain([0, d3.max(layers0, function(layer){ return d3.max(layer, function(d) { return d.y0 + d.y; }); })])
+    .range([height, 0]);
+yAxis = d3.svg.axis().scale(yscale).orient("left").tickSize(-width);
+svg.append("g")
+    .attr("class", "y axis")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")")
+    .call(yAxis);
+
+// draw the y axis label. "ylabelgroup" is global because "transition" has to access it later.
+ylabel_left = svg.append("g")
+ylabel_left.append("text")
+    .attr("class", "ylabel")
+    .text(ylabel0)
+    .attr("transform", 
+      "translate(" + (left_buffer + 90) + "," + (height/2 + top_buffer) + ") rotate(-90)")
+    .style("text-anchor", "middle"); 
+
+// ------------------------------------------------------------------------------------------------------- y axis right
+// Add the y axis (right) (scale = new cases /day)
+var cases_scale = d3.scale.linear()
+                    .domain([0, 520]) // Hardcoded to match nicely with the lines for the other y-scale
+                    .range([height, 0])
+var cases_yAxis = d3.svg.axis()
+                    .scale(cases_scale)
+                    .tickValues([50,100,150,200,250,300,350,400,450,500]) // Hardcoded for the same reason
+                    .orient("right");
+svg.append("g")
+    .attr("class", "y axis")
+    .attr("fill", "white")
+    .attr("transform", "translate(" + (width+axis_buffer+left_buffer) + "," + top_buffer + ")")
+    .call(cases_yAxis);
+
+// draw the y label for numcases
+var ylabel_right = svg.append("g")
+ylabel_right.append("text")
+    .attr("class", "ylabel")
+    .text("Approx. new cases/day (WHO reports)")
+    .attr("transform", 
+      "translate(" + (left_buffer + width + 208 ) + "," + (height/2 + top_buffer -5 ) + ") rotate(90)")
+    .style("text-anchor", "middle")
+    .style("fill", "white")
+    .style("font-size", "20px"); 
+
+// ---------------------------------------------------------------------------------------------------- bottom timeline
+// Add the timeline information to the timelineinfo group
+// add timeline lines (from the text to the xaxis)
+timelineinfo.selectAll("line")
+    .data(timelinedata)
+    .enter().append("line")
+    .attr("stroke-width", 1)
+    .attr("stroke", "#8e8e8e")
+    .attr("x1", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+    .attr("x2", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+    .attr("y1", function(d,i){ return (height + top_buffer + 40 + (i%5)*20 + 8)} )
+    .attr("y2", height + top_buffer)
+// add the timeline information
+timelineinfo.selectAll("text")
+  .data(timelinedata)
+  .enter().append("text")
+  .attr("class", "timeline")
+  .text(function(d){return d.events})
+  .attr("y", function(d,i){ return (height + top_buffer + 40 + (i%5)*20 + 10)} )
+  .attr("x", function(d, i){ return left_buffer + axis_buffer + x(dateparser(d.date))})
+
+// ------------------------------------------------------------------------------------------- The streamgraph! Finally
+// colors to use for the streamgraph
+var color = ['#EB2022','#1980BE','#669900', '#141459', '#F47E00', '#808080'],
+    colorhash = {};
+// note that these are global vars so that "transition" can access them later. 
+streamgraph = svg.append("g")
+// the path generator for the streams.
+// I use a "basis" interpolation to make it prettier, but we do lose some detail. 
+// You can comment out the "interpolate("basis")" if you like, or chose from other interpolation options
+area = d3.svg.area().interpolate("basis")
+    .x(function(d) { return x(dateparser(d.x)); })
+    .y0(function(d) { return yscale(d.y0); })
+    .y1(function(d) { return yscale(d.y0 + d.y); });
+
+streamgraph.selectAll("path")
+    .data(layers0)
+    .enter().append("path")
+    .attr("d", area)
+    .style("fill", function(d, i) { colorhash[eboladata.names[i]] = color[i]; return color[i]; })
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")"); 
+
+// ---------------------------------------------------------------------------------------------------- Cases/ day line
+// add the number of cases line
+var casesline = svg.append("g")
+// A line generator, for the number of cases
+var line = d3.svg.line()
+    .interpolate("bundle").tension(.8)
+    .x(function(d) { return x(dateparser(d.date)); })
+    .y(function(d) { return cases_scale(d.num_cases); });
+
+casesline.append("path").attr("class", "cases")
+    .attr("stroke-width", 2)
+    .attr("stroke", "white")
+    .attr("opacity", "1")
+    .attr("d", line(casesdata))
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")"); 
+
+// ----------------------------------------------------------------------------------------------------- Add the legend
+var legend = svg.append("g")
+    .attr("class", "legend")
+
+legend.selectAll("g")
+    .data(eboladata.names).enter()
+    .append('g')
+    .each(function(d, i) {
+        var g = d3.select(this);
+        // colored rectangles
+        g.append("rect")
+          .attr("x", axis_buffer + 80 )
+          .attr("y", top_buffer + 150 - i*28 )
+          .attr("width", 18)
+          .attr("height", 18)
+          .style("fill", colorhash[d]);
+        // text labels
+        g.append("text")
+          .attr("x", axis_buffer + 100 )
+          .attr("y", top_buffer + 166 - i*28 )
+          .style("fill", colorhash[d])
+          .text(d); });
+});
+
+// --------------------------------------------------------------------------------------------------------- Transition
+// function to switch between percent view and total tweets view
+function transition() {
+  // transition the streamgraph
+  streamgraph_selection = streamgraph.selectAll("path")
+      .data(function() {
+        var d = layers1;
+        layers1 = layers0;
+        var s = yscale_max1;
+        yscale_max1 = yscale_max0;
+        yscale_max0 = s;
+        var t = y_tickValues1;
+        y_tickValues1 = y_tickValues0;
+        y_tickValues0 = t;
+        yscale.domain([0, yscale_max0])
+        return layers0 = d;
+      })
+  streamgraph_transition = streamgraph_selection.transition().duration(1000);
+  streamgraph_transition.attr("d", area);
+
+  // transtion the axes
+  var tempspecifier = formatspecifier1;
+  formatspecifier1 = formatspecifier0;
+  formatspecifier0 = tempspecifier;
+  axes_transition = svg.transition().duration(1000);
+  axes_transition.select(".y.axis").call(yAxis.tickFormat(d3.format(formatspecifier0)).tickValues(y_tickValues0));
+
+  // chage the axis label
+  var templabel = ylabel1;
+  ylabel1 = ylabel0
+  ylabel0 = templabel
+  ylabel_left.selectAll("text").transition().duration(1000).text(ylabel0)
+  
+}
+
+</script>

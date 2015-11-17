@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Streamgraph</title>
+<style>
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  position: relative;
+  width: 1100px;
+}
+
+button {
+  position: absolute;
+  right: -100px;
+  top: 30px;
+  font-size: 16px;
+}
+
+.background rect {fill: #ddd;}
+.axis {shape-rendering: crispEdges;}
+.x.axis line {stroke: #fff;}
+.x.axis path {display: none;}
+.y.axis line {stroke: #fff;}
+.y.axis path {display: none;}
+.ylabel {font-size: 20px;}
+.title {font-size: 30px;}
+.timeline {
+  font-size: 18px;
+  text-anchor: end;
+  fill: #5E5E5E;
+}
+path {fill: none;}
+
+</style>
+
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script>
+
+// --------------------------------------------------------------------------------------------------------------- DATA
+d3.json("ebola_layers_data.json", function(json){
+
+// load the data from a text-file
+eboladata = json;
+// load the data for the streamgraph. 
+// "stack" sets us up with a data structure that has all of the info for the streamgraph
+var stack = d3.layout.stack().order('default');
+layers0 = stack(eboladata.tweets),
+//layers1 = stack(eboladata.percent);
+// format the yaxis display for either tweets/day or percent
+formatspecifier0 = ","
+//formatspecifier1 = "%"
+// appropriate labels for the yaxis
+ylabel0 = "Total Tweets (and Retweets) per Day"
+ylabel1 = "Percentage of the Conversation"
+// date handling for the data data that comes in 
+var dateparser = d3.time.format("%Y-%m-%d").parse;
+
+// --------------------------------------------------------------------------------------------------------- SVG Canvas
+// Start drawing :)
+// size of the svg canvas
+var width = 1100,
+    height = 400,
+    axis_buffer = 160,
+    top_buffer = 70,
+    left_buffer = 50,
+    right_buffer = 100;
+
+svg = d3.select("body").append("svg")
+    .attr("width", (width + axis_buffer + left_buffer + right_buffer ))
+    .attr("height", (height + axis_buffer + top_buffer));
+
+// ------------------------------------------------------------------------------------------------------ Title & Bkgnd
+// gray rectangle (chart background)
+svg.append("rect").attr("class", "background")
+    .attr("width", width )
+    .attr("height", height).attr("fill", "#ddd")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (top_buffer+.65) + ")");
+
+// draw the title
+svg.append("text")
+    .attr("class", "title")
+    .text("Using Twitter to Inform the Public About Ebola")
+    .attr("y", top_buffer/2 + 20)
+    .attr("x", axis_buffer + left_buffer)
+    .style("text-anchor", "start"); 
+
+// ------------------------------------------------------------------------------------------------------------- x axis
+
+// Add the x-axis.
+// x scale = time
+var x = d3.time.scale()
+    .domain([dateparser("2014-03-20"), dateparser("2015-03-01")])
+    .range([0, width]);
+var xAxis = d3.svg.axis().scale(x).tickSize(-height).tickFormat(d3.time.format("%b"));
+svg.append("g")
+    .attr("class", "x axis")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + (height + top_buffer) + ")")
+    .call(xAxis)
+    .selectAll("text")
+    .attr("dy", "1em")
+    .attr("dx", "-1em")
+    .style("text-anchor", "middle");
+
+// ------------------------------------------------------------------------------------------------------ y axis (left)
+// Add the y axis (left)
+// y axis (number of tweets or percentage of tweets)
+// these are all are global variables so that I can call them from "transition"
+var yscale_max0 = 52000;
+var y_tickValues0 = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000]
+
+var yscale = d3.scale.linear()
+    .domain([0, yscale_max0]) // Hardcoded this value so I could get the two y-axes to line up nicely, 
+    // could've used:
+    // .domain([0, d3.max(layers0, function(layer){ return d3.max(layer, function(d) { return d.y0 + d.y; }); })])
+    .range([height, 0]);
+var yAxis = d3.svg.axis().scale(yscale).orient("left").tickSize(-width);
+svg.append("g")
+    .attr("class", "y axis")
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")")
+    .call(yAxis);
+
+// draw the y axis label. 
+var ylabel_left = svg.append("g")
+ylabel_left.append("text")
+    .attr("class", "ylabel")
+    .text(ylabel0)
+    .attr("transform", 
+      "translate(" + (left_buffer + 90) + "," + (height/2 + top_buffer) + ") rotate(-90)")
+    .style("text-anchor", "middle"); 
+
+
+// ------------------------------------------------------------------------------------------- The streamgraph! Finally
+// colors to use for the streamgraph
+var color = ['#EB2022','#1980BE','#669900', '#141459', '#F47E00', '#808080'],
+    colorhash = {};
+// note that these are global vars so that "transition" can access them later. 
+streamgraph = svg.append("g")
+// the path generator for the streams.
+// I use a "basis" interpolation to make it prettier, but we do lose some detail. 
+// You can comment out the "interpolate("basis")" if you like, or chose from other interpolation options
+area = d3.svg.area().interpolate("basis")
+    .x(function(d) { return x(dateparser(d.x)); })
+    .y0(function(d) { return yscale(d.y0); })
+    .y1(function(d) { return yscale(d.y0 + d.y); });
+
+streamgraph.selectAll("path")
+    .data(layers0)
+    .enter().append("path")
+    .attr("d", area)
+    .style("fill", function(d, i) { colorhash[eboladata.names[i]] = color[i]; return color[i]; })
+    .attr("transform", "translate(" + (axis_buffer+left_buffer) + "," + top_buffer + ")"); 
+
+// ----------------------------------------------------------------------------------------------------- Add the legend
+var legend = svg.append("g")
+    .attr("class", "legend")
+
+legend.selectAll("g")
+    .data(eboladata.names).enter()
+    .append('g')
+    .each(function(d, i) {
+        var g = d3.select(this);
+        // colored rectangles
+        g.append("rect")
+          .attr("x", axis_buffer + 80 )
+          .attr("y", top_buffer + 150 - i*28 )
+          .attr("width", 18)
+          .attr("height", 18)
+          .style("fill", colorhash[d]);
+        // text labels
+        g.append("text")
+          .attr("x", axis_buffer + 100 )
+          .attr("y", top_buffer + 166 - i*28 )
+          .style("fill", colorhash[d])
+          .text(d); });
+});
+
+</script>
